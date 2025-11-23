@@ -97,9 +97,12 @@ async def post_news():
             for link in new_links:
                 f.write(link + "\n")
 
-scheduler = AsyncIOScheduler(timezone="Asia/Tehran")
-scheduler.add_job(post_news, 'interval', minutes=30)  # هر ۳۰ دقیقه پست می‌کنه تا مطمئن شیم
+# فیکس event loop برای Railway
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+scheduler = AsyncIOScheduler(event_loop=loop)
+scheduler.add_job(post_news, 'interval', minutes=30)
 scheduler.start()
 
 print("ربات #اخبار_روز فعال شد – هر ۳۰ دقیقه پست می‌کنه!")
-asyncio.get_event_loop().run_forever()
+loop.run_forever()
