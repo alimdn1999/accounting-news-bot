@@ -2,7 +2,6 @@ import feedparser
 import telegram
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
-import pytz
 import os
 import requests
 
@@ -28,15 +27,14 @@ RSS_FEEDS = [
 ]
 
 def get_full_persian_news(title_en, summary_en):
-    prompt = f"""این خبر حسابداری را کاملاً به فارسی روان و حرفه‌ای ترجمه کن (۶ تا ۱۲ جمله):
-عنوان انگلیسی: {title_en}
-متن انگلیسی: {summary_en[:3000]}
+    prompt = f"""این خبر را به فارسی کامل و مفصل (حداقل ۶ جمله) ترجمه کن:
 
-خروجی فقط شامل:
-- عنوان فارسی جذاب و کوتاه
-- متن کامل فارسی مفصل
-- هیچ کلمه انگلیسی، عدد، علامت یا ایموجی اضافه ننویس
-- فقط فارسی خالص"""
+عنوان: {title_en}
+خلاصه: {summary_en[:3200]}
+
+شروع کن با یک عنوان فارسی جذاب.
+از کلمات فارسی استفاده کن، فقط نام‌های خاص مثل PwC، IFRS، SEC را همان‌طور نگه دار.
+هیچ کلمه انگلیسی غیرضروری ننویس."""
 
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
@@ -45,10 +43,10 @@ def get_full_persian_news(title_en, summary_en):
         if r.status_code == 200:
             text = r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
             return text[:3800]
-    except Exception as e:
-        print(f"خطای جمینی: {e}")
+    except:
+        pass
 
-    return "در حال حاضر خلاصه فارسی آماده نیست. خبر به‌زودی ارسال می‌شود."
+    return f"جدیدترین خبر حسابداری:\n{title_en}\n\nخلاصه به‌زودی با ترجمه فارسی کامل ارسال می‌شود."
 
 async def post_one_persian_news():
     for feed_url in RSS_FEEDS:
@@ -62,12 +60,12 @@ async def post_one_persian_news():
                 title_en = entry.title
                 summary_en = entry.summary if hasattr(entry, "summary") else ""
 
-                persian_content = get_full_persian_news(title_en, summary_en)
+                persian = get_full_persian_news(title_en, summary_en)
 
-                message = f"#اخبار_روز\n━━━━━━━━━━━━━━\n{persian_content}\n\nلینک خبر:\n{link}"
+                message = f"#اخبار_روز\n━━━━━━━━━━━━━━\n{persian}\n\nلینک خبر:\n{link}"
 
                 await bot.send_message(chat_id=CHANNEL_ID, text=message, disable_web_page_preview=True)
-                print("خبر کامل فارسی با لینک فارسی ارسال شد!")
+                print("خبر فارسی کامل ارسال شد!")
 
                 posted_links.add(link)
                 with open(posted_links_file, "a") as f:
@@ -75,15 +73,14 @@ async def post_one_persian_news():
                 return
 
         except Exception as e:
-            print(f"خطا در منبع: {e}")
+            print(f"خطا: {e}")
             continue
 
-# فیکس event loop
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 scheduler = AsyncIOScheduler(event_loop=loop)
-scheduler.add_job(post_one_persian_news, 'interval', minutes=10)  # برای تست
+scheduler.add_job(post_one_persian_news, 'interval', minutes=5)  # هر ۵ دقیقه
 scheduler.start()
 
-print("ربات نهایی فارسی فعال شد – هر ۱۰ دقیقه یک خبر کامل فارسی می‌فرسته!")
+print("ربات تست ۵ دقیقه‌ای فعال شد – هر ۵ دقیقه یک خبر فارسی کامل می‌فرسته!")
 loop.run_forever()
