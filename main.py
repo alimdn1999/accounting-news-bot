@@ -10,17 +10,13 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 # ==========================================
 # تنظیمات و دریافت کلیدها از متغیرهای محیطی
 # ==========================================
-# در Railway باید این مقادیر را در بخش Variables وارد کنید
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# بررسی اینکه کلیدها ست شده باشند
 if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
-    print("Error: Environment variables are not set. Please set TELEGRAM_TOKEN and GEMINI_API_KEY in Railway.")
+    print("FATAL ERROR: Environment variables are missing.")
 
-# فایل ذخیره موقت (توجه: در Railway این فایل با هر دیپلوی جدید ریست می‌شود)
-# اما نگران نباشید، چون ما چک می‌کنیم خبر قدیمی نباشد.
 POSTED_LINKS_FILE = "posted_links.txt"
 
 RSS_FEEDS = [
@@ -49,29 +45,29 @@ def save_posted_link(link):
         with open(POSTED_LINKS_FILE, "a", encoding="utf-8") as f:
             f.write(link + "\n")
     except Exception as e:
-        print(f"Warning: Could not save link to file: {e}")
+        print(f"Warning: Could not save link: {e}")
 
 def clean_html(raw_html):
     if not raw_html: return ""
     cleanr = re.compile('<.*?>')
-    cleantext = re.sub(cleanr, '', raw_html)
-    return cleantext.strip()
+    return re.sub(cleanr, '', raw_html).strip()
 
 def is_article_new(entry):
     """
-    بررسی می‌کند که خبر مربوط به ۲۴ ساعت گذشته باشد.
-    این کار باعث می‌شود اگر فایل لینک‌ها پاک شد، خبرهای قدیمی دوباره ارسال نشوند.
+    بررسی می‌کند که خبر مربوط به ۳ روز گذشته باشد.
     """
     try:
         if hasattr(entry, 'published_parsed') and entry.published_parsed:
             published_time = datetime.fromtimestamp(mktime(entry.published_parsed))
             now = datetime.now()
-            # اگر خبر قدیمی‌تر از 24 ساعت است، False برگردان
-            if now - published_time > timedelta(hours=24):
+            # لاگ کردن تاریخ خبر برای دیباگ
+            # print(f"DEBUG: Article Date: {published_time} | Now: {now}")
+            
+            # تغییر به 72 ساعت (3 روز) برای اطمینان از پیدا شدن خبر
+            if now - published_time > timedelta(hours=72):
                 return False
         return True
     except:
-        # اگر تاریخ نداشت، فرض می‌کنیم جدید است (ریسک کم)
         return True
 
 def send_telegram_message(text):
@@ -83,27 +79,31 @@ def send_telegram_message(text):
         "disable_web_page_preview": True
     }
     try:
+        print(f"Attempting to send message to {CHANNEL_ID}...")
         response = requests.post(url, json=payload, timeout=20)
-        return response.status_code == 200
+        if response.status_code == 200:
+            print("✅ Telegram Message Sent Successfully!")
+            return True
+        else:
+            print(f"❌ Telegram Error: {response.status_code} - {response.text}")
+            return False
     except Exception as e:
-        print(f"Telegram Error: {e}")
+        print(f"❌ Connection Error: {e}")
         return False
 
 def translate_with_gemini(title_en, summary_en):
     clean_summary = clean_html(summary_en)[:3500]
-    
     prompt = f"""You are a professional financial journalist.
 Task: Translate and summarize into fluent Persian (Farsi).
 
 1. **Headline:** Catchy Persian headline.
 2. **Body:** 6-10 sentences summary in formal/journalistic Persian.
 3. **Keywords:** Keep 'IFRS', 'GAAP', 'Big4', 'SEC' in English.
-4. **Output:** ONLY the translated text. No intros.
+4. **Output:** ONLY the translated text.
 
 Title: {title_en}
 Context: {clean_summary}
 """
-
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     
@@ -111,8 +111,10 @@ Context: {clean_summary}
         r = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=60)
         if r.status_code == 200:
             return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except:
-        pass
+        else:
+            print(f"Gemini Error: {r.status_code} {r.text}")
+    except Exception as e:
+        print(f"Gemini Connection failed: {e}")
     return None
 
 # ==========================================
@@ -120,31 +122,36 @@ Context: {clean_summary}
 # ==========================================
 
 def job_check_feed():
-    print("--- Starting Feed Check ---")
+    print("\n--- 🔄 Starting Feed Check Cycle ---")
     posted_links = load_posted_links()
     
     for feed_url in RSS_FEEDS:
         try:
-            print(f"Checking: {feed_url}")
+            print(f"📡 Reading Feed: {feed_url}")
             feed = feedparser.parse(feed_url)
             
+            if not feed.entries:
+                print("   ⚠️ No entries found in this feed.")
+                continue
+
             for entry in feed.entries[:5]: 
                 link = entry.link.strip()
                 
-                # 1. چک کردن تکراری بودن
+                # 1. چک تکراری
                 if link in posted_links:
                     continue
 
-                # 2. چک کردن قدیمی بودن (برای جلوگیری از ارسال مجدد بعد از ریستارت)
+                # 2. چک تاریخ (با لاگ دقیق‌تر)
                 if not is_article_new(entry):
-                    print(f"Skipping old article: {entry.title}")
-                    # لینک قدیمی را هم ذخیره می‌کنیم که دفعه بعد چک نکنیم
+                    # print(f"   ⏳ Skipping old article: {entry.title[:30]}...")
                     posted_links.add(link)
                     save_posted_link(link)
                     continue
                 
                 # ترجمه و ارسال
-                print(f"New Article Found: {entry.title}")
+                print(f"   ✨ New Article Found: {entry.title}")
+                print("   ... Translating ...")
+                
                 summary = entry.summary if hasattr(entry, "summary") else entry.title
                 persian_text = translate_with_gemini(entry.title, summary)
                 
@@ -157,23 +164,40 @@ def job_check_feed():
                     )
                     
                     if send_telegram_message(msg):
-                        print(">> Sent to Telegram")
                         save_posted_link(link)
                         posted_links.add(link)
-                        return # توقف برای این دور (ارسال یکی یکی)
+                        print("   ✅ Cycle paused. Waiting for next schedule.")
+                        return # توقف برای این دور
                     else:
-                        print(">> Failed to send")
+                        print("   ❌ Failed to send to Telegram (Check Admin rights/Token).")
+                else:
+                    print("   ❌ Translation returned empty.")
+                    
         except Exception as e:
-            print(f"Error on feed: {e}")
+            print(f"❌ Error processing feed: {e}")
 
 if __name__ == "__main__":
+    # --- تست اتصال اولیه ---
+    print("🚀 Bot is starting...")
+    startup_msg = f"🟢 ربات اخبار حسابداری با موفقیت روشن شد.\nساعت سرور: {datetime.now().strftime('%H:%M:%S')}\nدر حال جستجوی خبرهای ۳ روز گذشته..."
+    
+    # تلاش برای ارسال پیام تست
+    success = send_telegram_message(startup_msg)
+    
+    if not success:
+        print("\n⛔⛔⛔ هشدار جدی: ربات نتوانست پیام شروع را بفرستد.")
+        print("لطفاً چک کنید: 1. توکن درست است؟ 2. آیدی کانال @ دارد؟ 3. ربات در کانال ادمین است؟\n")
+    else:
+        print("✅ Startup message sent! Connection is good.")
+
+    # شروع اسکژولر
     scheduler = BlockingScheduler()
-    # چک کردن هر 5 دقیقه
     scheduler.add_job(job_check_feed, 'interval', minutes=5)
     
-    print("Bot is running on Railway...")
-    
-    # اجرا بلافاصله پس از شروع
+    # اجرای اولین چک بلافاصله
     job_check_feed()
     
-    scheduler.start()
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        print("Bot stopped.")
