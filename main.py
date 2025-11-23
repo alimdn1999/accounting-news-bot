@@ -36,8 +36,7 @@ def get_full_persian_news(title_en, summary_en):
 خروجی فقط شامل:
 • عنوان فارسی جذاب و کوتاه
 • خلاصه فارسی کامل و مفصل (۵ تا ۱۰ جمله)
-• هیچ کلمه انگلیسی، شماره، یا علامت اضافه‌ای ننویس
-• از ایموجی فقط در صورت لزوم استفاده کن"""
+• هیچ کلمه انگلیسی، شماره، یا علامت اضافه‌ای ننویس"""
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         payload = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
@@ -56,4 +55,37 @@ async def post_one_persian_news():
         try:
             feed = feedparser.parse(feed_url)
             for entry in feed.entries[:8]:
-                link = entry
+                link = entry.link.strip()
+                if link in posted_links:
+                    continue
+
+                title_en = entry.title
+                summary_en = entry.summary if hasattr(entry, "summary") else ""
+
+                persian_content = get_full_persian_news(title_en, summary_en)
+
+                message = f"#اخبار_روز\n━━━━━━━━━━━━━━\n{persian_content}\n\n🔗 {link}"
+
+                await bot.send_message(chat_id=CHANNEL_ID, text=message, disable_web_page_preview=True)
+                print("خبر کامل فارسی ارسال شد!")
+
+                posted_links.add(link)
+                with open(posted_links_file, "a") as f:
+                    f.write(link + "\n")
+                return  # فقط یک خبر در هر نوبت
+
+        except Exception as e:
+            print(f"خطا در RSS: {e}")
+            continue
+
+    print("این نوبت خبر جدیدی نبود")
+
+# فیکس event loop
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+scheduler = AsyncIOScheduler(event_loop=loop)
+scheduler.add_job(post_one_persian_news, 'interval', minutes=10)  # هر ۱۰ دقیقه برای تست
+scheduler.start()
+
+print("ربات تست فعال شد – هر ۱۰ دقیقه یک خبر کامل فارسی می‌فرسته!")
+loop.run_forever()
