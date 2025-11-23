@@ -7,7 +7,7 @@ import requests
 
 TELEGRAM_TOKEN = "8024765560:AAGFsVT9bTzGHGD-aSzkUo_y-vXRLZpSi4s"
 CHANNEL_ID = "@AccountingNewsDaily"
-GEMINI_API_KEY = "AIzaSyDwwU0YXFbI1c_lqgq1MCTlRHltNz5LpU0"
+GEMINI_API_KEY = "AIzaSyDCJZ71zv_u4DiA93nn_CtRv2BmSnyCtFw"   # کلید جدیدت
 
 posted_links_file = "posted_links.txt"
 if os.path.exists(posted_links_file):
@@ -27,14 +27,12 @@ RSS_FEEDS = [
 ]
 
 def get_full_persian_news(title_en, summary_en):
-    prompt = f"""این خبر را به فارسی کامل و مفصل (حداقل ۶ جمله) ترجمه کن:
+    prompt = f"""این خبر را به فارسی روان، کامل و مفصل (حداقل ۶–۱۰ جمله) ترجمه کن:
 
 عنوان: {title_en}
-خلاصه: {summary_en[:3200]}
+متن: {summary_en[:3200]}
 
-شروع کن با یک عنوان فارسی جذاب.
-از کلمات فارسی استفاده کن، فقط نام‌های خاص مثل PwC، IFRS، SEC را همان‌طور نگه دار.
-هیچ کلمه انگلیسی غیرضروری ننویس."""
+شروع کن با یک عنوان فارسی جذاب. فقط فارسی بنویس، فقط نام‌های خاص مثل PwC، IFRS، SEC را همان‌طور نگه دار."""
 
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
@@ -46,7 +44,8 @@ def get_full_persian_news(title_en, summary_en):
     except:
         pass
 
-    return f"جدیدترین خبر حسابداری:\n{title_en}\n\nخلاصه به‌زودی با ترجمه فارسی کامل ارسال می‌شود."
+    # فال‌بک خیلی قوی
+    return f"جدیدترین خبر حسابداری:\n{title_en}\n\nخلاصه کامل فارسی به‌زودی ارسال می‌شود (در حال به‌روزرسانی ترجمه)."
 
 async def post_one_persian_news():
     for feed_url in RSS_FEEDS:
@@ -79,8 +78,8 @@ async def post_one_persian_news():
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 scheduler = AsyncIOScheduler(event_loop=loop)
-scheduler.add_job(post_one_persian_news, 'interval', minutes=5)  # هر ۵ دقیقه
+scheduler.add_job(post_one_persian_news, 'interval', minutes=5)  # ۵ دقیقه برای تست
 scheduler.start()
 
-print("ربات تست ۵ دقیقه‌ای فعال شد – هر ۵ دقیقه یک خبر فارسی کامل می‌فرسته!")
+print("ربات با کلید جدید فعال شد – هر ۵ دقیقه یک خبر فارسی کامل می‌فرسته!")
 loop.run_forever()
